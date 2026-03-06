@@ -1,6 +1,0 @@
-streamlit
-leafmap
-rasterio
-pyproj
-streamlit-folium
-geopandas
