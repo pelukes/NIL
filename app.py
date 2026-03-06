@@ -42,7 +42,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🌲 Prostorová extrapolace parametrů NIL3")
-st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace lesů vzniklých natrénováním ensemble modelů strojového učení (Sentinel-2, 2022).")
+st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace lesů vzniklých natrénováním ensemble modelů strojového učení (preidktory: Výškový model lesa 2018-2019, odrazivosti Sentinel-2 2019).")
 st.markdown("---")
 
 # ==========================================
@@ -205,3 +205,4 @@ if map_output and map_output.get("last_clicked"):
 else:
     # Zobrazení výzvy, pokud uživatel ještě nikam neklikl
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
