@@ -252,23 +252,30 @@ if map_output and map_output.get("last_clicked"):
         for i, (k, v) in enumerate(TARGETS.items()):
             mean_val = results[k]["mean"]
             cv_val = results[k]["cv"]
-    
+            
             with cols[i % 3]:
                 if mean_val is not None:
-                # Lokální nejistota pixelu na základě CV (%)
-                pixel_uncertainty = (mean_val * cv_val) / 100 if cv_val else 0
-            
-                st.metric(
-                    label=v["name"],
-                    value=f"{mean_val:.1f} {v['unit']}",
-                    # Zobrazení: Lokální odchylka (Globální RMSE modelu)
-                    delta=f"±{pixel_uncertainty:.1f} (RMSE: {v['rmse']:.1f}) {v['unit']}",
-                    delta_color="off" 
-                )
+                    # Výpočet lokální nejistoty pixelu na základě CV (%)
+                    # Pokud je cv_val None nebo 0, dosadíme 0
+                    current_cv = cv_val if cv_val is not None else 0
+                    pixel_uncertainty = (mean_val * current_cv) / 100
+                    
+                    st.metric(
+                        label=v["name"],
+                        value=f"{mean_val:.1f} {v['unit']}",
+                        # Zobrazení: Lokální odchylka (Globální RMSE modelu)
+                        delta=f"±{pixel_uncertainty:.1f} (RMSE: {v['rmse']:.1f}) {v['unit']}",
+                        delta_color="off" 
+                    )
                 else:
-                    st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
+                    st.metric(
+                        label=v["name"], 
+                        value="Mimo lesní masku", 
+                        delta="Žádná data"
+                    )
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
