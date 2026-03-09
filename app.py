@@ -4,6 +4,7 @@ import rasterio
 from pyproj import Transformer
 import concurrent.futures
 from streamlit_folium import st_folium
+import time
 
 # ==========================================
 # 1. Konfigurace aplikace a Vlastní CSS
@@ -235,6 +236,7 @@ if map_output and map_output.get("last_clicked"):
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
