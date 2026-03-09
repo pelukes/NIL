@@ -10,10 +10,8 @@ from streamlit_folium import st_folium
 # ==========================================
 st.set_page_config(layout="wide", page_title="NIL3 Portál", page_icon="🌲")
 
-# Injekce vlastního CSS pro moderní vzhled karet (Metrics)
 st.markdown("""
 <style>
-    /* Stylování karet s výsledky */
     div[data-testid="metric-container"] {
         background-color: #f8f9fa;
         border: 1px solid #e9ecef;
@@ -26,14 +24,12 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 2px 4px 15px rgba(0,0,0,0.1);
     }
-    /* Podpora pro tmavý režim (Dark mode) */
     @media (prefers-color-scheme: dark) {
         div[data-testid="metric-container"] {
             background-color: #1e1e1e;
             border: 1px solid #333;
         }
     }
-    /* Vyladění hlavního nadpisu */
     h1 {
         color: #2e7d32;
         padding-bottom: 0rem;
@@ -42,7 +38,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 st.title("🌲 Prostorová extrapolace parametrů NIL3")
-st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace lesů vzniklých natrénováním ensemble modelů strojového učení (preidktory: Výškový model lesa 2018-2019, odrazivosti Sentinel-2 2019).")
+st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace lesů vzniklých natrénováním ensemble modelů strojového učení (prediktory: Výškový model lesa 2018-2019, odrazivosti Sentinel-2 2019).")
 st.markdown("---")
 
 # ==========================================
@@ -79,7 +75,6 @@ TARGETS = {
 
 HF_BASE_URL = "https://huggingface.co/datasets/lukespetr/NIL_retrieval/resolve/main/"
 
-# --- Postranní panel ---
 with st.sidebar:
     st.header("⚙️ Nastavení vrstvy")
     
@@ -102,12 +97,15 @@ with st.sidebar:
     }
     selected_basemap = st.selectbox("🌍 Základní mapa:", options=list(basemap_options.keys()))
 
-    layer_opacity = st.slider("👁️ Průhlednost vrstvy:", min_value=0.0, max_value=1.0, value=0.85, step=0.05)
+    layer_opacity = st.slider("👁️ Průhlednost rastrové vrstvy:", min_value=0.0, max_value=1.0, value=0.85, step=0.05)
+    
+    st.markdown("---")
+    st.header("📐 Vektorové vrstvy")
+    show_ndsm_vector = st.checkbox("Zobrazit změny nDSM (polygony)", value=False)
 
     st.markdown("---")
     st.info("💡 **Tip:** Kliknutím kamkoliv do lesní plochy v mapě získáte okamžitou extrakci všech 12 parametrů pro daný pixel.")
 
-# Sestavení URL a parametrů legendy
 suffix = "mean" if "Průměr" in map_mode else "cv"
 cog_url = f"{HF_BASE_URL}masked_predicted_{selected_key}_10m_{suffix}_cog.tif"
 
@@ -120,11 +118,10 @@ legend_title = f"{TARGETS[selected_key]['name']}" if suffix == "mean" else f"Nej
 # ==========================================
 m = leafmap.Map(center=[49.19, 16.60], zoom=10, draw_control=False, measure_control=False)
 
-# Aplikace zvolené podkladové mapy
 m.add_basemap(basemap_options[selected_basemap])
 
-# Přidání rastrové COG vrstvy
 with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."):
+    # 1. Přidání rastrové COG vrstvy
     m.add_cog_layer(
         url=cog_url,
         name=f"{TARGETS[selected_key]['name']} ({suffix.upper()})",
@@ -143,11 +140,27 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         position="topright" 
     )
 
+    # 2. Přidání vektorové PMTiles vrstvy (pokud je aktivována)
+    if show_ndsm_vector:
+        pmtiles_url = f"{HF_BASE_URL}nDSM_change_NIL3.pmtiles"
+        m.add_pmtiles(
+            url=pmtiles_url,
+            name="Změny nDSM",
+            style={
+                "color": "#d32f2f",        # Barva linie (červená)
+                "weight": 1.5,             # Tloušťka linie
+                "fillColor": "#ef5350",    # Barva výplně
+                "fillOpacity": 0.3         # Průhlednost výplně polygonu
+            },
+            overlay=True,
+            control=True
+        )
+
 # Vykreslení do Streamlitu
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
     map_output = st_folium(m, width=1500, height=650, returned_objects=["last_clicked"])
 
-# Patička s informacemi a stahováním (upravený layout)
+# Patička
 col1, col2 = st.columns([3, 1])
 with col1:
     st.caption(f"**Zdrojový soubor:** `{cog_url.split('/')[-1]}`")
@@ -165,10 +178,9 @@ if map_output and map_output.get("last_clicked"):
     
     st.subheader("📍 Profil lesa pro vybranou lokalitu")
     st.caption(f"**GPS souřadnice:** {lat:.5f} N, {lon:.5f} E")
-    st.write("") # Odsazení
+    st.write("") 
     
     with st.spinner("⚡ Extrahuji parametry ze všech 12 predikčních vrstev v reálném čase..."):
-        # Transformace z WGS84 do UTM 33N (EPSG:32633)
         transformer = Transformer.from_crs("EPSG:4326", "EPSG:32633", always_xy=True)
         x, y = transformer.transform(lon, lat)
         
@@ -179,14 +191,12 @@ if map_output and map_output.get("last_clicked"):
         
         results = {k: {"mean": None, "cv": None} for k in TARGETS.keys()}
         
-        # Multithreading pro rychlé stažení
         with concurrent.futures.ThreadPoolExecutor(max_workers=12) as executor:
             future_to_key = {executor.submit(fetch_pixel_value, q[2], x, y): q for q in queries}
             for future in concurrent.futures.as_completed(future_to_key):
                 var_key, stat_type, _ = future_to_key[future]
                 results[var_key][stat_type] = future.result()
 
-        # Vykreslení do krásných karet
         cols = st.columns(3)
         for i, (k, v) in enumerate(TARGETS.items()):
             mean_val = results[k]["mean"]
@@ -203,6 +213,4 @@ if map_output and map_output.get("last_clicked"):
                 else:
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
-    # Zobrazení výzvy, pokud uživatel ještě nikam neklikl
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
-
