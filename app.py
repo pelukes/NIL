@@ -141,9 +141,33 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
     )
 
     # 2. Přidání vektorové PMTiles vrstvy (pokud je aktivována)
-    if show_ndsm_vector:
+if show_ndsm_vector:
         pmtiles_url = f"{HF_BASE_URL}nDSM_change_NIL3.pmtiles"
         
+        # Kompletní, validní MapLibre styl
+        maplibre_style = {
+            "version": 8,
+            "sources": {
+                "ndsm_source": {
+                    "type": "vector",
+                    "url": f"pmtiles://{pmtiles_url}"
+                }
+            },
+            "layers": [
+                {
+                    "id": "ndsm_polygons",
+                    "type": "fill",
+                    "source": "ndsm_source",
+                    "source-layer": "NIL3_Polygons", # Název vrstvy z příkazu tippecanoe (-l)
+                    "paint": {
+                        "fill-color": "#ef5350",
+                        "fill-opacity": 0.4,
+                        "fill-outline-color": "#d32f2f"
+                    }
+                }
+            ]
+        }
+
         m.add_pmtiles(
             url=pmtiles_url,
             name="Změny nDSM",
@@ -210,5 +234,6 @@ if map_output and map_output.get("last_clicked"):
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
