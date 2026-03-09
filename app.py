@@ -140,11 +140,11 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         position="topright" 
     )
 
-    # 2. Přidání vektorové PMTiles vrstvy (pokud je aktivována)
-if show_ndsm_vector:
-        pmtiles_url = f"{HF_BASE_URL}nDSM_change_NIL3.pmtiles"
+# 2. Přidání vektorové PMTiles vrstvy (pokud je aktivována)
+    if show_ndsm_vector:
+        # Replace the URL below with your actual R2.dev subdomain URL
+        pmtiles_url = "https://pub-xxxxxxxxxxxxxxxxxxxx.r2.dev/nDSM_change_NIL3.pmtiles"
         
-        # Kompletní, validní MapLibre styl
         maplibre_style = {
             "version": 8,
             "sources": {
@@ -158,7 +158,7 @@ if show_ndsm_vector:
                     "id": "ndsm_polygons",
                     "type": "fill",
                     "source": "ndsm_source",
-                    "source-layer": "NIL3_Polygons", # Název vrstvy z příkazu tippecanoe (-l)
+                    "source-layer": "NIL3_Polygons", 
                     "paint": {
                         "fill-color": "#ef5350",
                         "fill-opacity": 0.4,
@@ -234,6 +234,7 @@ if map_output and map_output.get("last_clicked"):
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
