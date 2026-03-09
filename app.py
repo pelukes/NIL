@@ -70,37 +70,37 @@ TARGETS = {
         "name": "Nadzemní biomasa", 
         "unit": "t/ha", 
         "max_val": 500, "max_cv": 80, 
-        "rmse": 98.50
+        "rrmse": 42.36  # v %
     },
     "gldsity_vo": {
         "name": "Objem hroubí", 
         "unit": "m³/ha", 
         "max_val": 800, "max_cv": 80, 
-        "rmse": 147.43
+        "rrmse": 40.68  # v %
     },
     "h_plot": {
         "name": "Výška porostu", 
         "unit": "m", 
         "max_val": 45, "max_cv": 50, 
-        "rmse": 4.13
+        "rrmse": 18.25  # v %
     },
     "age_plot": {
         "name": "Věk porostu", 
         "unit": "let", 
         "max_val": 160, "max_cv": 80, 
-        "rmse": 25.81
+        "rrmse": 35.84  # v %
     },
     "dbh_plot": {
         "name": "Výčetní tloušťka", 
         "unit": "mm", 
         "max_val": 700, "max_cv": 80, 
-        "rmse": 96.46
+        "rrmse": 28.78  # v %
     },
     "g13_ldsity": {
         "name": "Kruhová základna", 
         "unit": "m²/ha", 
         "max_val": 60, "max_cv": 80, 
-        "rmse": 12.74
+        "rrmse": 38.48  # v %
     }
 }
 
@@ -255,17 +255,28 @@ if map_output and map_output.get("last_clicked"):
             
             with cols[i % 3]:
                 if mean_val is not None:
-                    # Výpočet lokální nejistoty pixelu na základě CV (%)
-                    # Pokud je cv_val None nebo 0, dosadíme 0
-                    val_str = f"{mean_val:.0f}" if v['unit'] in ['t/ha', 'm³/ha'] else f"{mean_val:.1f}"
+                    # 1. Výpočet dynamické nejistoty (rRMSE aplikované na aktuální pixel)
+                    # std_error je absolutní chyba v jednotkách (t/ha, m, atd.)
+                    std_error = (mean_val * v["rrmse"]) / 100
+                    
+                    # 2. Výpočet intervalu s fyzikálním omezením na nulu
+                    lower_bound = max(0, mean_val - std_error)
+                    upper_bound = mean_val + std_error
+                    
+                    # 3. Formátování zobrazení (zaokrouhlení podle jednotek)
+                    # U objemů a biomasy stačí celá čísla, u výšky/základny desetiny
+                    precision = 0 if v['unit'] in ['t/ha', 'm³/ha', 'mm', 'let'] else 1
                     
                     st.metric(
                         label=v["name"],
-                        value=f"{val_str} ± {v['rmse']:.1f} {v['unit']}", # Tady je ten ± zápis
-                        delta=f"Relativní nejistota: {cv_val:.1f} % CV",
-                        delta_color="off" 
+                        value=f"{mean_val:.{precision}f} ± {std_error:.{precision}f} {v['unit']}",
+                        # Jako delta můžeme nechat lokální CV z modelu (shoda ensemble)
+                        delta=f"Nejistota modelu: {cv_val:.1f} % CV" if cv_val else None,
+                        delta_color="off"
                     )
-                    st.caption(f"Interval spolehlivosti (1σ): {mean_val - v['rmse']:.1f} až {mean_val + v['rmse']:.1f}")
+                    
+                    # 4. Textové zobrazení intervalu (fyzikálně korektní)
+                    st.caption(f"Interval (1σ): {lower_bound:.1f} až {upper_bound:.1f} {v['unit']}")
                 else:
                     st.metric(
                         label=v["name"], 
@@ -274,6 +285,7 @@ if map_output and map_output.get("last_clicked"):
                     )
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
