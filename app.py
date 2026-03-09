@@ -265,10 +265,11 @@ if map_output and map_output.get("last_clicked"):
                     delta=f"±{pixel_uncertainty:.1f} (RMSE: {v['rmse']:.1f}) {v['unit']}",
                     delta_color="off" 
                 )
-            else:
-                st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
+                else:
+                    st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
