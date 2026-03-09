@@ -66,12 +66,42 @@ def fetch_pixel_value(url, x, y):
 # 3. Parametry a UI (Postranní panel)
 # ==========================================
 TARGETS = {
-    "above_st_b": {"name": "Nadzemní biomasa (t/ha)", "max_val": 500, "max_cv": 80},
-    "gldsity_vo": {"name": "Objem hroubí (m³/ha)", "max_val": 800, "max_cv": 80},
-    "h_plot":     {"name": "Výška porostu (m)", "max_val": 45, "max_cv": 50},
-    "age_plot":   {"name": "Věk porostu (roky)", "max_val": 160, "max_cv": 80},
-    "dbh_plot":   {"name": "Výčetní tloušťka (mm)", "max_val": 700, "max_cv": 80},
-    "g13_ldsity": {"name": "Kruhová základna (m²/ha)", "max_val": 60, "max_cv": 80}
+    "above_st_b": {
+        "name": "Nadzemní biomasa", 
+        "unit": "t/ha", 
+        "max_val": 500, "max_cv": 80, 
+        "rmse": 98.50
+    },
+    "gldsity_vo": {
+        "name": "Objem hroubí", 
+        "unit": "m³/ha", 
+        "max_val": 800, "max_cv": 80, 
+        "rmse": 147.43
+    },
+    "h_plot": {
+        "name": "Výška porostu", 
+        "unit": "m", 
+        "max_val": 45, "max_cv": 50, 
+        "rmse": 4.13
+    },
+    "age_plot": {
+        "name": "Věk porostu", 
+        "unit": "let", 
+        "max_val": 160, "max_cv": 80, 
+        "rmse": 25.81
+    },
+    "dbh_plot": {
+        "name": "Výčetní tloušťka", 
+        "unit": "mm", 
+        "max_val": 700, "max_cv": 80, 
+        "rmse": 96.46
+    },
+    "g13_ldsity": {
+        "name": "Kruhová základna", 
+        "unit": "m²/ha", 
+        "max_val": 60, "max_cv": 80, 
+        "rmse": 12.74
+    }
 }
 
 HF_BASE_URL = "https://huggingface.co/datasets/lukespetr/NIL_retrieval/resolve/main/"
@@ -222,19 +252,24 @@ if map_output and map_output.get("last_clicked"):
         for i, (k, v) in enumerate(TARGETS.items()):
             mean_val = results[k]["mean"]
             cv_val = results[k]["cv"]
-            
+    
             with cols[i % 3]:
                 if mean_val is not None:
-                    st.metric(
-                        label=v["name"],
-                        value=f"{mean_val:.1f}",
-                        delta=f"Nejistota: ± {cv_val:.1f} % CV" if cv_val is not None else "N/A",
-                        delta_color="off" 
-                    )
-                else:
-                    st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
+                # Lokální nejistota pixelu na základě CV (%)
+                pixel_uncertainty = (mean_val * cv_val) / 100 if cv_val else 0
+            
+                st.metric(
+                    label=v["name"],
+                    value=f"{mean_val:.1f} {v['unit']}",
+                    # Zobrazení: Lokální odchylka (Globální RMSE modelu)
+                    delta=f"±{pixel_uncertainty:.1f} (RMSE: {v['rmse']:.1f}) {v['unit']}",
+                    delta_color="off" 
+                )
+            else:
+                st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
