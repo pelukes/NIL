@@ -144,30 +144,6 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
     if show_ndsm_vector:
         pmtiles_url = f"{HF_BASE_URL}nDSM_change_NIL3.pmtiles"
         
-        # Kompletní definice MapLibre stylu
-        maplibre_style = {
-            "version": 8,
-            "sources": {
-                "ndsm_source": {
-                    "type": "vector",
-                    "url": f"pmtiles://{pmtiles_url}"
-                }
-            },
-            "layers": [
-                {
-                    "id": "ndsm_polygons",
-                    "type": "fill",  # Typ geometrie: "fill" pro polygony, "line" pro linie
-                    "source": "ndsm_source",
-                    "source-layer": "NIL3_Polygons", # ⚠️ ZDE MUSÍ BÝT NÁZEV VRSTVY Z TIPPECANOE (-l)
-                    "paint": {
-                        "fill-color": "#ef5350",     # Barva výplně (červená)
-                        "fill-opacity": 0.4,         # Průhlednost výplně
-                        "fill-outline-color": "#d32f2f" # Barva ohraničení
-                    }
-                }
-            ]
-        }
-
         m.add_pmtiles(
             url=pmtiles_url,
             name="Změny nDSM",
@@ -234,4 +210,5 @@ if map_output and map_output.get("last_clicked"):
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
