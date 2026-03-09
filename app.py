@@ -257,16 +257,15 @@ if map_output and map_output.get("last_clicked"):
                 if mean_val is not None:
                     # Výpočet lokální nejistoty pixelu na základě CV (%)
                     # Pokud je cv_val None nebo 0, dosadíme 0
-                    current_cv = cv_val if cv_val is not None else 0
-                    pixel_uncertainty = (mean_val * current_cv) / 100
+                    val_str = f"{mean_val:.0f}" if v['unit'] in ['t/ha', 'm³/ha'] else f"{mean_val:.1f}"
                     
                     st.metric(
                         label=v["name"],
-                        value=f"{mean_val:.1f} {v['unit']}",
-                        # Zobrazení: Lokální odchylka (Globální RMSE modelu)
-                        delta=f"±{pixel_uncertainty:.1f} (RMSE: {v['rmse']:.1f}) {v['unit']}",
+                        value=f"{val_str} ± {v['rmse']:.1f} {v['unit']}", # Tady je ten ± zápis
+                        delta=f"Relativní nejistota: {cv_val:.1f} % CV",
                         delta_color="off" 
                     )
+                    st.caption(f"Interval spolehlivosti (1σ): {mean_val - v['rmse']:.1f} až {mean_val + v['rmse']:.1f}")
                 else:
                     st.metric(
                         label=v["name"], 
@@ -275,6 +274,7 @@ if map_output and map_output.get("last_clicked"):
                     )
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
