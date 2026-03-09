@@ -143,7 +143,7 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
 # 2. Přidání vektorové PMTiles vrstvy (pokud je aktivována)
     if show_ndsm_vector:
         # Replace the URL below with your actual R2.dev subdomain URL
-        pmtiles_url = "pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3.pmtiles"
+        pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3.pmtiles"
         
         maplibre_style = {
             "version": 8,
@@ -234,6 +234,7 @@ if map_output and map_output.get("last_clicked"):
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
