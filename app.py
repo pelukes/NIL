@@ -143,9 +143,8 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
 
 # 2. Přidání vektorové PMTiles vrstvy (pokud je aktivována)
     if show_ndsm_vector:
-        # Replace the URL below with your actual R2.dev subdomain URL
-        base_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3_fixed.pmtiles"
-        pmtiles_url = f"{base_url}?nocache={int(time.time())}"
+        # Nové URL po nahrání WGS84 verze
+        pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3_fixed.pmtiles"
         
         maplibre_style = {
             "version": 8,
@@ -160,16 +159,17 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
                     "id": "ndsm_polygons",
                     "type": "fill",
                     "source": "ndsm_source",
-                    "source-layer": "NIL3_Polygons", 
+                    "source-layer": "nDSM_change_NIL3_fixed — NIL3_polygons", 
                     "paint": {
                         "fill-color": "#ef5350",
-                        "fill-opacity": 0.4,
-                        "fill-outline-color": "#d32f2f"
+                        "fill-opacity": 0.5, # Zvýšena pro lepší viditelnost
+                        "fill-outline-color": "#b71c1c"
                     }
                 }
             ]
         }
 
+        # DŮLEŽITÉ: Použijte add_pmtiles přímo na objekt mapy 'm'
         m.add_pmtiles(
             url=pmtiles_url,
             name="Změny nDSM",
@@ -177,7 +177,6 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
             overlay=True,
             control=True
         )
-
 # Vykreslení do Streamlitu
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
     map_output = st_folium(m, width=1500, height=650, returned_objects=["last_clicked"])
@@ -236,6 +235,7 @@ if map_output and map_output.get("last_clicked"):
                     st.metric(label=v["name"], value="Mimo lesní masku", delta="Žádná data")
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
 
 
