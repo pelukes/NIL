@@ -201,7 +201,7 @@ m = leafmap.Map(
 m.add_basemap(basemap_options[selected_basemap])
 
 with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."):
-    # Přidáno fit_bounds=False, aby mapa při změně widgetu neskákala
+    # Odstraněn argument fit_bounds=False, protože způsobuje TypeError
     m.add_cog_layer(
         url=cog_url,
         name=f"{TARGETS[selected_key]['name']} ({suffix.upper()})",
@@ -209,8 +209,7 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         rescale=f"1,{vmax}", 
         transparent_bg=True,
         nodata=0,
-        opacity=layer_opacity,
-        fit_bounds=False
+        opacity=layer_opacity
     )
     m.add_colormap(cmap=palette, vmin=1, vmax=vmax, label=legend_title, position="topright")
 
@@ -231,18 +230,22 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
                 }
             }]
         }
-        # Přidáno fit_bounds=False i pro vektorovou vrstvu
         m.add_pmtiles(
             url=pmtiles_url, 
             name="Změny nDSM", 
             style=maplibre_style, 
             overlay=True, 
-            control=True, 
-            fit_bounds=False
+            control=True
         )
 
+# === KLÍČOVÝ HACK PRO ZACHOVÁNÍ POZICE MAPY ===
+# Projdeme všechny vnitřní prvky mapy a manuálně odstraníme jakýkoliv 
+# objekt typu "FitBounds", který leafmap na pozadí vytvořil.
+for key in list(m._children.keys()):
+    if "fit_bounds" in key.lower() or "fitbounds" in key.lower():
+        del m._children[key]
+
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
-    # REMOVED "center" and "zoom" from returned_objects to fix the pan/zoom reset loop
     map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
 
 # ==========================================
