@@ -201,7 +201,6 @@ m = leafmap.Map(
 m.add_basemap(basemap_options[selected_basemap])
 
 with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."):
-    # Odstraněn argument fit_bounds=False, protože způsobuje TypeError
     m.add_cog_layer(
         url=cog_url,
         name=f"{TARGETS[selected_key]['name']} ({suffix.upper()})",
@@ -239,11 +238,15 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         )
 
 # === KLÍČOVÝ HACK PRO ZACHOVÁNÍ POZICE MAPY ===
-# Projdeme všechny vnitřní prvky mapy a manuálně odstraníme jakýkoliv 
-# objekt typu "FitBounds", který leafmap na pozadí vytvořil.
-for key in list(m._children.keys()):
-    if "fit_bounds" in key.lower() or "fitbounds" in key.lower():
-        del m._children[key]
+# 1. Odstraníme automatický bounding box, který si folium vytvořil.
+keys_to_remove = [k for k in m._children.keys() if "fitbounds" in k.lower() or "fit_bounds" in k.lower()]
+for k in keys_to_remove:
+    del m._children[k]
+
+# 2. Resetujeme skrytě změněné souřadnice mapy. Leafmap je při importu vrstvy 
+# posunul na střed rastru, což by způsobilo odskok mapy při každém překreslení ve Streamlitu.
+m.location = [49.19, 16.60]
+m.options['zoom'] = 10
 
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
     map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
