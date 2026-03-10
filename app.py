@@ -201,7 +201,7 @@ with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']
         nodata=0,
         opacity=layer_opacity,
         fit_bounds=False, # Zabraňuje oddálení mapy na úroveň celé republiky
-        show=True
+        shown=True        # OPRAVENO: leafmap vyžaduje 'shown' místo 'show'
     )
     
     # Vrstva Nejistoty (Skrytá, dostupná přes Layer Control v mapě)
@@ -213,8 +213,8 @@ with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']
         transparent_bg=True,
         nodata=0,
         opacity=layer_opacity,
-        fit_bounds=False, # Zabraňuje oddálení mapy na úroveň celé republiky
-        show=False
+        fit_bounds=False, 
+        shown=False       # OPRAVENO
     )
     
     # Colormap legendy
@@ -238,7 +238,15 @@ with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']
             }
         }]
     }
-    m.add_pmtiles(url=pmtiles_url, name="Změny nDSM (Vektory)", style=maplibre_style, overlay=True, control=True, show=False, fit_bounds=False)
+    m.add_pmtiles(
+        url=pmtiles_url, 
+        name="Změny nDSM (Vektory)", 
+        style=maplibre_style, 
+        overlay=True, 
+        control=True, 
+        shown=False,      # OPRAVENO
+        fit_bounds=False
+    )
 
     # Přidání nativního přepínače vrstev do mapy
     m.add_layer_control()
@@ -346,3 +354,4 @@ if map_output and map_output.get("last_clicked"):
                     )
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
