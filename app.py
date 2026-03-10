@@ -12,7 +12,7 @@ from shapely.geometry import shape, mapping
 from shapely.ops import transform
 
 # ==========================================
-# 1. Configuration & Custom CSS
+# 1. Konfigurace aplikace a Vlastní CSS
 # ==========================================
 st.set_page_config(layout="wide", page_title="NIL3 Portál", page_icon="🌲")
 
@@ -43,15 +43,20 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Inicializace session state
 if "aoi_zip_buffer" not in st.session_state:
     st.session_state["aoi_zip_buffer"] = None
+if "map_center" not in st.session_state:
+    st.session_state["map_center"] = [49.19, 16.60]
+if "map_zoom" not in st.session_state:
+    st.session_state["map_zoom"] = 9
 
 st.title("🌲 Prostorová extrapolace parametrů NIL3")
 st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace lesů vzniklých natrénováním ensemble modelů strojového učení (prediktory: Výškový model lesa 2018-2019, odrazivosti Sentinel-2 2019).")
 st.markdown("---")
 
 # ==========================================
-# 2. Data Processing Functions
+# 2. Funkce pro zpracování dat
 # ==========================================
 def fetch_pixel_value(url, x, y):
     env_kwargs = {
@@ -70,7 +75,6 @@ def fetch_pixel_value(url, x, y):
         return None
 
 def process_single_layer(task, geom_mapping, env_kwargs):
-    """Worker function for parallel raster clipping."""
     key, stat, base_url = task
     url = f"{base_url}masked_predicted_{key}_10m_{stat}_cog.tif"
     vsi_url = f"/vsicurl/{url}"
@@ -79,7 +83,6 @@ def process_single_layer(task, geom_mapping, env_kwargs):
             with rasterio.open(vsi_url) as src:
                 out_image, out_transform = rasterio.mask.mask(src, geom_mapping, crop=True)
                 out_meta = src.meta.copy()
-
                 out_meta.update({
                     "driver": "GTiff",
                     "height": out_image.shape[1],
@@ -87,22 +90,19 @@ def process_single_layer(task, geom_mapping, env_kwargs):
                     "transform": out_transform,
                     "compress": "deflate"
                 })
-
                 mem_file = io.BytesIO()
                 with rasterio.open(mem_file, "w", **out_meta) as dest:
                     dest.write(out_image)
-                
                 return f"NIL3_{key}_{stat}.tif", mem_file.getvalue()
     except Exception as e:
         return None, str(e)
 
 def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_text):
-    # Transform geometry from WGS84 to EPSG:32633 for metric area calculation
     geom = shape(geojson_geometry)
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:32633", always_xy=True)
     geom_proj = transform(transformer.transform, geom)
     
-    # Area limit validation (100 km2)
+    # Limit plochy na 100 km2
     area_km2 = geom_proj.area / 1_000_000.0
     if area_km2 > 100.0:
         return None, f"Zvolené území ({area_km2:.1f} km²) překračuje limit 100 km². Zmenšete polygon."
@@ -117,25 +117,21 @@ def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_t
         'VSI_CACHE': 'TRUE'
     }
 
-    # Prepare tasks for ThreadPool
     tasks = [(k, stat, base_url) for k in targets.keys() for stat in ["mean", "cv"]]
     total_tasks = len(tasks)
     completed = 0
     results_data = []
 
-    # Execute clipping in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         future_to_task = {executor.submit(process_single_layer, task, geom_mapping, env_kwargs): task for task in tasks}
         for future in concurrent.futures.as_completed(future_to_task):
             file_name, data = future.result()
             if file_name is not None:
                 results_data.append((file_name, data))
-            
             completed += 1
             progress_bar.progress(completed / total_tasks)
             status_text.text(f"Zpracováno {completed}/{total_tasks} vrstev (Plocha: {area_km2:.1f} km²)...")
 
-    # Package into ZIP
     status_text.text("Komprimuji data do ZIP archivu...")
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for file_name, data in results_data:
@@ -145,7 +141,7 @@ def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_t
     return zip_buffer, None
 
 # ==========================================
-# 3. Parameters & UI (Sidebar)
+# 3. Parametry a UI (Postranní panel)
 # ==========================================
 TARGETS = {
     "above_st_b": {"name": "Nadzemní biomasa", "unit": "t/ha", "max_val": 500, "max_cv": 80, "rrmse": 42.36},
@@ -161,7 +157,6 @@ HF_BASE_URL = "https://huggingface.co/datasets/lukespetr/NIL_retrieval/resolve/m
 with st.sidebar:
     st.header("⚙️ Nastavení vrstvy")
     selected_key = st.selectbox("🎯 Výběr parametru NIL3:", options=list(TARGETS.keys()), format_func=lambda x: TARGETS[x]["name"])
-    map_mode = st.radio("📊 Typ mapy:", ["Průměrný odhad", "Nejistota odhadu (CV %)"])
 
     st.markdown("---")
     st.header("🗺️ Nastavení zobrazení")
@@ -175,68 +170,91 @@ with st.sidebar:
     layer_opacity = st.slider("👁️ Průhlednost rastrové vrstvy:", min_value=0.0, max_value=1.0, value=0.85, step=0.05)
     
     st.markdown("---")
-    st.header("📐 Vektorové vrstvy")
-    show_ndsm_vector = st.checkbox("Zobrazit změny nDSM (polygony)", value=False)
+    st.info("💡 **Novinka:** Typ mapy (Průměr vs. CV) a Vektorové vrstvy se nyní zapínají **přímo v mapě** pomocí navigační ikonky vrstev (vpravo nahoře). Zabraňuje to nepříjemnému přenačítání mapy.")
 
-    st.markdown("---")
-    st.info("💡 **Tip:** Nakreslete v mapě polygon pomocí panelu nástrojů na levé straně pro hromadné stažení dat, nebo klikněte do mapy pro zobrazení lokálního profilu.")
-
-suffix = "mean" if "Průměr" in map_mode else "cv"
-cog_url = f"{HF_BASE_URL}masked_predicted_{selected_key}_10m_{suffix}_cog.tif"
-
-vmax = TARGETS[selected_key]["max_val"] if suffix == "mean" else TARGETS[selected_key]["max_cv"]
-palette = "viridis" if suffix == "mean" else "magma"
-legend_title = f"{TARGETS[selected_key]['name']}" if suffix == "mean" else f"Nejistota CV (%)"
+url_mean = f"{HF_BASE_URL}masked_predicted_{selected_key}_10m_mean_cog.tif"
+url_cv = f"{HF_BASE_URL}masked_predicted_{selected_key}_10m_cv_cog.tif"
+vmax_mean = TARGETS[selected_key]["max_val"]
+vmax_cv = TARGETS[selected_key]["max_cv"]
 
 # ==========================================
-# 4. Map Initialization
+# 4. Inicializace a vykreslení mapy
 # ==========================================
+# Využíváme paměť lokace pro zachování pohledu při změně hlavního parametru
 m = leafmap.Map(
-    center=[49.19, 16.60], 
-    zoom=10, 
+    center=st.session_state["map_center"], 
+    zoom=st.session_state["map_zoom"], 
     draw_control=True, 
     measure_control=False
 )
 
 m.add_basemap(basemap_options[selected_basemap])
 
-with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."):
+with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']}..."):
+    # Vrstva Průměru (Základní, viditelná)
     m.add_cog_layer(
-        url=cog_url,
-        name=f"{TARGETS[selected_key]['name']} ({suffix.upper()})",
-        palette=palette,
-        rescale=f"1,{vmax}", 
+        url=url_mean,
+        name=f"{TARGETS[selected_key]['name']} (Průměr)",
+        palette="viridis",
+        rescale=f"1,{vmax_mean}", 
         transparent_bg=True,
         nodata=0,
-        opacity=layer_opacity
+        opacity=layer_opacity,
+        fit_bounds=False, # Zabraňuje oddálení mapy na úroveň celé republiky
+        show=True
     )
-    m.add_colormap(cmap=palette, vmin=1, vmax=vmax, label=legend_title, position="topright")
+    
+    # Vrstva Nejistoty (Skrytá, dostupná přes Layer Control v mapě)
+    m.add_cog_layer(
+        url=url_cv,
+        name=f"Nejistota CV (%)",
+        palette="magma",
+        rescale=f"1,{vmax_cv}", 
+        transparent_bg=True,
+        nodata=0,
+        opacity=layer_opacity,
+        fit_bounds=False, # Zabraňuje oddálení mapy na úroveň celé republiky
+        show=False
+    )
+    
+    # Colormap legendy
+    m.add_colormap(cmap="viridis", vmin=1, vmax=vmax_mean, label=f"{TARGETS[selected_key]['name']}", position="bottomright")
+    m.add_colormap(cmap="magma", vmin=1, vmax=vmax_cv, label="Nejistota CV (%)", position="bottomleft")
 
-    if show_ndsm_vector:
-        pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3_fixed.pmtiles"
-        maplibre_style = {
-            "version": 8,
-            "sources": {"ndsm_source": {"type": "vector", "url": f"pmtiles://{pmtiles_url}"}},
-            "layers": [{
-                "id": "ndsm_polygons",
-                "type": "fill",
-                "source": "ndsm_source",
-                "source-layer": "nDSM_change_NIL3_fixed — NIL3_polygons", 
-                "paint": {
-                    "fill-color": "#ef5350",
-                    "fill-opacity": 0.5, 
-                    "fill-outline-color": "#b71c1c"
-                }
-            }]
-        }
-        m.add_pmtiles(url=pmtiles_url, name="Změny nDSM", style=maplibre_style, overlay=True, control=True)
+    # Vektorová vrstva (Skrytá, dostupná přes Layer Control v mapě)
+    pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3_fixed.pmtiles"
+    maplibre_style = {
+        "version": 8,
+        "sources": {"ndsm_source": {"type": "vector", "url": f"pmtiles://{pmtiles_url}"}},
+        "layers": [{
+            "id": "ndsm_polygons",
+            "type": "fill",
+            "source": "ndsm_source",
+            "source-layer": "nDSM_change_NIL3_fixed — NIL3_polygons", 
+            "paint": {
+                "fill-color": "#ef5350",
+                "fill-opacity": 0.5, 
+                "fill-outline-color": "#b71c1c"
+            }
+        }]
+    }
+    m.add_pmtiles(url=pmtiles_url, name="Změny nDSM (Vektory)", style=maplibre_style, overlay=True, control=True, show=False, fit_bounds=False)
+
+    # Přidání nativního přepínače vrstev do mapy
+    m.add_layer_control()
 
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
-    # REMOVED "center" and "zoom" from returned_objects to fix the pan/zoom reset loop
+    # Odstraněno sledování center a zoomu na úrovni každého pohybu myší, sleduje se pouze kliknutí
     map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
 
+# Uložení lokace z posledního kliknutí. Zaručí, že pokud uživatel v budoucnu změní 
+# parametr v levém menu (což nutí Streamlit k rerunu), mapa se vrátí na zkoumané místo.
+if map_output and map_output.get("last_clicked"):
+    st.session_state["map_center"] = [map_output["last_clicked"]["lat"], map_output["last_clicked"]["lng"]]
+    st.session_state["map_zoom"] = 14
+
 # ==========================================
-# 5. Bulk Export (AOI Download)
+# 5. Hromadný export (AOI Download)
 # ==========================================
 st.subheader("📥 Export dat pro zájmové území (AOI)")
 if map_output and map_output.get("last_active_drawing"):
@@ -274,7 +292,7 @@ else:
 st.markdown("---")
 
 # ==========================================
-# 6. Interactive Pixel Querying
+# 6. Interaktivní dotazování na pixely
 # ==========================================
 if map_output and map_output.get("last_clicked"):
     lat = map_output["last_clicked"]["lat"]
