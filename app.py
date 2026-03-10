@@ -12,7 +12,7 @@ from shapely.geometry import shape, mapping
 from shapely.ops import transform
 
 # ==========================================
-# 1. Configuration & Custom CSS
+# 1. Konfigurace aplikace a Vlastní CSS
 # ==========================================
 st.set_page_config(layout="wide", page_title="NIL3 Portál", page_icon="🌲")
 
@@ -201,6 +201,7 @@ m = leafmap.Map(
 m.add_basemap(basemap_options[selected_basemap])
 
 with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."):
+    # Přidáno fit_bounds=False, aby mapa při změně widgetu neskákala
     m.add_cog_layer(
         url=cog_url,
         name=f"{TARGETS[selected_key]['name']} ({suffix.upper()})",
@@ -208,7 +209,8 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         rescale=f"1,{vmax}", 
         transparent_bg=True,
         nodata=0,
-        opacity=layer_opacity
+        opacity=layer_opacity,
+        fit_bounds=False
     )
     m.add_colormap(cmap=palette, vmin=1, vmax=vmax, label=legend_title, position="topright")
 
@@ -229,7 +231,15 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
                 }
             }]
         }
-        m.add_pmtiles(url=pmtiles_url, name="Změny nDSM", style=maplibre_style, overlay=True, control=True)
+        # Přidáno fit_bounds=False i pro vektorovou vrstvu
+        m.add_pmtiles(
+            url=pmtiles_url, 
+            name="Změny nDSM", 
+            style=maplibre_style, 
+            overlay=True, 
+            control=True, 
+            fit_bounds=False
+        )
 
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
     # REMOVED "center" and "zoom" from returned_objects to fix the pan/zoom reset loop
