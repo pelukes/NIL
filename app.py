@@ -191,7 +191,7 @@ m = leafmap.Map(
 m.add_basemap(basemap_options[selected_basemap])
 
 with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']}..."):
-    # Vrstva Průměru (Základní, viditelná)
+    # Vrstva Průměru (Přidána bez argumentů pro viditelnost)
     m.add_cog_layer(
         url=url_mean,
         name=f"{TARGETS[selected_key]['name']} (Průměr)",
@@ -200,28 +200,26 @@ with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']
         transparent_bg=True,
         nodata=0,
         opacity=layer_opacity,
-        fit_bounds=False, # Zabraňuje oddálení mapy na úroveň celé republiky
-        shown=True        # OPRAVENO: leafmap vyžaduje 'shown' místo 'show'
+        fit_bounds=False 
     )
     
-    # Vrstva Nejistoty (Skrytá, dostupná přes Layer Control v mapě)
+    # Vrstva Nejistoty (Přidána bez argumentů pro viditelnost)
     m.add_cog_layer(
         url=url_cv,
-        name=f"Nejistota CV (%)",
+        name="Nejistota CV (%)",
         palette="magma",
         rescale=f"1,{vmax_cv}", 
         transparent_bg=True,
         nodata=0,
         opacity=layer_opacity,
-        fit_bounds=False, 
-        shown=False       # OPRAVENO
+        fit_bounds=False
     )
     
     # Colormap legendy
     m.add_colormap(cmap="viridis", vmin=1, vmax=vmax_mean, label=f"{TARGETS[selected_key]['name']}", position="bottomright")
     m.add_colormap(cmap="magma", vmin=1, vmax=vmax_cv, label="Nejistota CV (%)", position="bottomleft")
 
-    # Vektorová vrstva (Skrytá, dostupná přes Layer Control v mapě)
+    # Vektorová vrstva
     pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3_fixed.pmtiles"
     maplibre_style = {
         "version": 8,
@@ -244,15 +242,21 @@ with st.spinner(f"🛰️ Připravuji vrstvy pro: {TARGETS[selected_key]['name']
         style=maplibre_style, 
         overlay=True, 
         control=True, 
-        shown=False,      # OPRAVENO
         fit_bounds=False
     )
+
+    # --- KOREKCE VIDITELNOSTI VRSTEV ---
+    # Přístup k podkladovým objektům folium a manuální vypnutí vykreslování
+    # obchází limitace kwargs uvnitř knihovny leafmap.
+    for key, layer in m._children.items():
+        if hasattr(layer, "layer_name"):
+            if layer.layer_name == "Nejistota CV (%)" or layer.layer_name == "Změny nDSM (Vektory)":
+                layer.show = False
 
     # Přidání nativního přepínače vrstev do mapy
     m.add_layer_control()
 
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
-    # Odstraněno sledování center a zoomu na úrovni každého pohybu myší, sleduje se pouze kliknutí
     map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
 
 # Uložení lokace z posledního kliknutí. Zaručí, že pokud uživatel v budoucnu změní 
@@ -354,4 +358,5 @@ if map_output and map_output.get("last_clicked"):
                     )
 else:
     st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
+
 
