@@ -7,11 +7,12 @@ import concurrent.futures
 from streamlit_folium import st_folium
 import io
 import zipfile
+import time
 from shapely.geometry import shape, mapping
 from shapely.ops import transform
 
 # ==========================================
-# 1. Konfigurace aplikace a Vlastní CSS
+# 1. Configuration & Custom CSS
 # ==========================================
 st.set_page_config(layout="wide", page_title="NIL3 Portál", page_icon="🌲")
 
@@ -42,11 +43,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- SESSION STATE INITIALIZATION ---
-if "map_center" not in st.session_state:
-    st.session_state["map_center"] = [49.19, 16.60]
-if "map_zoom" not in st.session_state:
-    st.session_state["map_zoom"] = 10
 if "aoi_zip_buffer" not in st.session_state:
     st.session_state["aoi_zip_buffer"] = None
 
@@ -55,10 +51,9 @@ st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace 
 st.markdown("---")
 
 # ==========================================
-# 2. Funkce pro zpracování dat
+# 2. Data Processing Functions
 # ==========================================
 def fetch_pixel_value(url, x, y):
-    """Stáhne hodnotu konkrétního pixelu z COG souboru na Hugging Face."""
     env_kwargs = {
         'GDAL_HTTP_FOLLOWREDIRECTS': 'YES',
         'GDAL_HTTP_USERAGENT': 'Mozilla/5.0',
@@ -74,58 +69,83 @@ def fetch_pixel_value(url, x, y):
     except Exception:
         return None
 
-def clip_and_zip_aoi(geojson_geometry, targets, base_url):
-    """Clips all variables for a given AOI and packages them into a ZIP buffer."""
-    # Transform geometry from WGS84 to EPSG:32633
+def process_single_layer(task, geom_mapping, env_kwargs):
+    """Worker function for parallel raster clipping."""
+    key, stat, base_url = task
+    url = f"{base_url}masked_predicted_{key}_10m_{stat}_cog.tif"
+    vsi_url = f"/vsicurl/{url}"
+    try:
+        with rasterio.Env(**env_kwargs):
+            with rasterio.open(vsi_url) as src:
+                out_image, out_transform = rasterio.mask.mask(src, geom_mapping, crop=True)
+                out_meta = src.meta.copy()
+
+                out_meta.update({
+                    "driver": "GTiff",
+                    "height": out_image.shape[1],
+                    "width": out_image.shape[2],
+                    "transform": out_transform,
+                    "compress": "deflate"
+                })
+
+                mem_file = io.BytesIO()
+                with rasterio.open(mem_file, "w", **out_meta) as dest:
+                    dest.write(out_image)
+                
+                return f"NIL3_{key}_{stat}.tif", mem_file.getvalue()
+    except Exception as e:
+        return None, str(e)
+
+def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_text):
+    # Transform geometry from WGS84 to EPSG:32633 for metric area calculation
     geom = shape(geojson_geometry)
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:32633", always_xy=True)
     geom_proj = transform(transformer.transform, geom)
+    
+    # Area limit validation (100 km2)
+    area_km2 = geom_proj.area / 1_000_000.0
+    if area_km2 > 100.0:
+        return None, f"Zvolené území ({area_km2:.1f} km²) překračuje limit 100 km². Zmenšete polygon."
+    
     geom_mapping = [mapping(geom_proj)]
-
     zip_buffer = io.BytesIO()
+    
     env_kwargs = {
         'GDAL_HTTP_FOLLOWREDIRECTS': 'YES',
         'GDAL_HTTP_USERAGENT': 'Mozilla/5.0',
-        'CPL_VSIL_CURL_ALLOWED_EXTENSIONS': 'tif'
+        'CPL_VSIL_CURL_ALLOWED_EXTENSIONS': 'tif',
+        'VSI_CACHE': 'TRUE'
     }
 
+    # Prepare tasks for ThreadPool
+    tasks = [(k, stat, base_url) for k in targets.keys() for stat in ["mean", "cv"]]
+    total_tasks = len(tasks)
+    completed = 0
+    results_data = []
+
+    # Execute clipping in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_task = {executor.submit(process_single_layer, task, geom_mapping, env_kwargs): task for task in tasks}
+        for future in concurrent.futures.as_completed(future_to_task):
+            file_name, data = future.result()
+            if file_name is not None:
+                results_data.append((file_name, data))
+            
+            completed += 1
+            progress_bar.progress(completed / total_tasks)
+            status_text.text(f"Zpracováno {completed}/{total_tasks} vrstev (Plocha: {area_km2:.1f} km²)...")
+
+    # Package into ZIP
+    status_text.text("Komprimuji data do ZIP archivu...")
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        with rasterio.Env(**env_kwargs):
-            for key in targets.keys():
-                for stat in ["mean", "cv"]:
-                    url = f"{base_url}masked_predicted_{key}_10m_{stat}_cog.tif"
-                    vsi_url = f"/vsicurl/{url}"
-                    try:
-                        with rasterio.open(vsi_url) as src:
-                            # Perform the mask over the network (downloads only required blocks)
-                            out_image, out_transform = rasterio.mask.mask(src, geom_mapping, crop=True)
-                            out_meta = src.meta.copy()
-
-                            # Update metadata for the clipped raster
-                            out_meta.update({
-                                "driver": "GTiff",
-                                "height": out_image.shape[1],
-                                "width": out_image.shape[2],
-                                "transform": out_transform,
-                                "compress": "deflate"
-                            })
-
-                            # Write the clipped raster to an in-memory file
-                            mem_file = io.BytesIO()
-                            with rasterio.open(mem_file, "w", **out_meta) as dest:
-                                dest.write(out_image)
-                            
-                            # Add to ZIP archive
-                            zip_file.writestr(f"NIL3_{key}_{stat}.tif", mem_file.getvalue())
-
-                    except Exception as e:
-                        st.warning(f"Failed to process {key}_{stat}: {e}")
+        for file_name, data in results_data:
+            zip_file.writestr(file_name, data)
 
     zip_buffer.seek(0)
-    return zip_buffer
+    return zip_buffer, None
 
 # ==========================================
-# 3. Parametry a UI (Postranní panel)
+# 3. Parameters & UI (Sidebar)
 # ==========================================
 TARGETS = {
     "above_st_b": {"name": "Nadzemní biomasa", "unit": "t/ha", "max_val": 500, "max_cv": 80, "rrmse": 42.36},
@@ -169,13 +189,12 @@ palette = "viridis" if suffix == "mean" else "magma"
 legend_title = f"{TARGETS[selected_key]['name']}" if suffix == "mean" else f"Nejistota CV (%)"
 
 # ==========================================
-# 4. Inicializace a vykreslení mapy
+# 4. Map Initialization
 # ==========================================
-# Utilize session_state coordinates to maintain map extent
 m = leafmap.Map(
-    center=st.session_state["map_center"], 
-    zoom=st.session_state["map_zoom"], 
-    draw_control=True, # Enabled to allow AOI drawing
+    center=[49.19, 16.60], 
+    zoom=10, 
+    draw_control=True, 
     measure_control=False
 )
 
@@ -213,30 +232,34 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         m.add_pmtiles(url=pmtiles_url, name="Změny nDSM", style=maplibre_style, overlay=True, control=True)
 
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
-    # Added "center", "zoom", and "last_active_drawing" to returned objects
-    map_output = st_folium(m, width=1500, height=650, returned_objects=["last_clicked", "center", "zoom", "last_active_drawing"])
-
-# Update session state quietly if panning/zooming occurs
-if map_output:
-    if map_output.get("center"):
-        st.session_state["map_center"] = [map_output["center"]["lat"], map_output["center"]["lng"]]
-    if map_output.get("zoom"):
-        st.session_state["map_zoom"] = map_output["zoom"]
+    # REMOVED "center" and "zoom" from returned_objects to fix the pan/zoom reset loop
+    map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
 
 # ==========================================
-# 5. Hromadný export (AOI Download)
+# 5. Bulk Export (AOI Download)
 # ==========================================
 st.subheader("📥 Export dat pro zájmové území (AOI)")
 if map_output and map_output.get("last_active_drawing"):
     geom = map_output["last_active_drawing"]["geometry"]
     st.success("Byl detekován polygon. Nyní můžete extrahovat mapové výstupy (12 vrstev) do formátu GeoTIFF.")
     
-    # Process the data when user clicks the preparation button
     if st.button("Zpracovat data pro vybraný polygon", type="primary"):
-        with st.spinner("Stahuji a ořezávám data... To může trvat několik desítek vteřin na základě velikosti polygonu."):
-            st.session_state["aoi_zip_buffer"] = clip_and_zip_aoi(geom, TARGETS, HF_BASE_URL)
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        buffer, error_msg = clip_and_zip_aoi(geom, TARGETS, HF_BASE_URL, progress_bar, status_text)
+        
+        if error_msg:
+            st.error(error_msg)
+            progress_bar.empty()
+            status_text.empty()
+        else:
+            st.session_state["aoi_zip_buffer"] = buffer
+            status_text.success("✅ Extrakce úspěšně dokončena. Soubor je připraven ke stažení.")
+            time.sleep(2)
+            progress_bar.empty()
+            status_text.empty()
             
-    # Display download button if buffer exists in session state
     if st.session_state.get("aoi_zip_buffer") is not None:
         st.download_button(
             label="Stáhnout připravený ZIP archiv",
@@ -251,7 +274,7 @@ else:
 st.markdown("---")
 
 # ==========================================
-# 6. Interaktivní dotazování na pixely (Dashboard)
+# 6. Interactive Pixel Querying
 # ==========================================
 if map_output and map_output.get("last_clicked"):
     lat = map_output["last_clicked"]["lat"]
