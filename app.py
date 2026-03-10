@@ -1,5 +1,7 @@
 import streamlit as st
 import leafmap.foliumap as leafmap
+import folium
+import urllib.parse
 import rasterio
 import rasterio.mask
 from pyproj import Transformer
@@ -51,7 +53,7 @@ st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace 
 st.markdown("---")
 
 # ==========================================
-# 2. Data Processing Functions
+# 2. Funkce pro zpracování dat
 # ==========================================
 def fetch_pixel_value(url, x, y):
     env_kwargs = {
@@ -70,7 +72,6 @@ def fetch_pixel_value(url, x, y):
         return None
 
 def process_single_layer(task, geom_mapping, env_kwargs):
-    """Worker function for parallel raster clipping."""
     key, stat, base_url = task
     url = f"{base_url}masked_predicted_{key}_10m_{stat}_cog.tif"
     vsi_url = f"/vsicurl/{url}"
@@ -97,7 +98,6 @@ def process_single_layer(task, geom_mapping, env_kwargs):
         return None, str(e)
 
 def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_text):
-    # Transform geometry from WGS84 to EPSG:32633 for metric area calculation
     geom = shape(geojson_geometry)
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:32633", always_xy=True)
     geom_proj = transform(transformer.transform, geom)
@@ -117,13 +117,11 @@ def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_t
         'VSI_CACHE': 'TRUE'
     }
 
-    # Prepare tasks for ThreadPool
     tasks = [(k, stat, base_url) for k in targets.keys() for stat in ["mean", "cv"]]
     total_tasks = len(tasks)
     completed = 0
     results_data = []
 
-    # Execute clipping in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
         future_to_task = {executor.submit(process_single_layer, task, geom_mapping, env_kwargs): task for task in tasks}
         for future in concurrent.futures.as_completed(future_to_task):
@@ -135,7 +133,6 @@ def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_t
             progress_bar.progress(completed / total_tasks)
             status_text.text(f"Zpracováno {completed}/{total_tasks} vrstev (Plocha: {area_km2:.1f} km²)...")
 
-    # Package into ZIP
     status_text.text("Komprimuji data do ZIP archivu...")
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
         for file_name, data in results_data:
@@ -145,7 +142,7 @@ def clip_and_zip_aoi(geojson_geometry, targets, base_url, progress_bar, status_t
     return zip_buffer, None
 
 # ==========================================
-# 3. Parameters & UI (Sidebar)
+# 3. Parametry a UI (Postranní panel)
 # ==========================================
 TARGETS = {
     "above_st_b": {"name": "Nadzemní biomasa", "unit": "t/ha", "max_val": 500, "max_cv": 80, "rrmse": 42.36},
@@ -189,7 +186,7 @@ palette = "viridis" if suffix == "mean" else "magma"
 legend_title = f"{TARGETS[selected_key]['name']}" if suffix == "mean" else f"Nejistota CV (%)"
 
 # ==========================================
-# 4. Map Initialization
+# 4. Inicializace mapy a vrstev (BEZ FITBOUNDS SKRIPTŮ)
 # ==========================================
 m = leafmap.Map(
     center=[49.19, 16.60], 
@@ -201,17 +198,23 @@ m = leafmap.Map(
 m.add_basemap(basemap_options[selected_basemap])
 
 with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."):
-    m.add_cog_layer(
-        url=cog_url,
+    # 1. Zabezpečené a manuální přidání COG vrstvy (Obejito nepředvídatelné leafmap.add_cog_layer)
+    encoded_url = urllib.parse.quote(cog_url, safe="")
+    titiler_url = f"https://titiler.leafmap.app/cog/tiles/WebMercatorQuad/{{z}}/{{x}}/{{y}}?url={encoded_url}&rescale=1,{vmax}&colormap_name={palette}&nodata=0"
+    
+    folium.TileLayer(
+        tiles=titiler_url,
+        attr="HuggingFace COG via TiTiler",
         name=f"{TARGETS[selected_key]['name']} ({suffix.upper()})",
-        palette=palette,
-        rescale=f"1,{vmax}", 
-        transparent_bg=True,
-        nodata=0,
+        overlay=True,
+        control=True,
         opacity=layer_opacity
-    )
+    ).add_to(m)
+    
+    # Colormap
     m.add_colormap(cmap=palette, vmin=1, vmax=vmax, label=legend_title, position="topright")
 
+    # 2. Vektory
     if show_ndsm_vector:
         pmtiles_url = "https://pub-ddf1e6086fe44d9dbcdf57d66b64fef0.r2.dev/nDSM_change_NIL3_fixed.pmtiles"
         maplibre_style = {
@@ -237,18 +240,25 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
             control=True
         )
 
-# === KLÍČOVÝ HACK PRO ZACHOVÁNÍ POZICE MAPY ===
-# 1. Odstraníme automatický bounding box, který si folium vytvořil.
-keys_to_remove = [k for k in m._children.keys() if "fitbounds" in k.lower() or "fit_bounds" in k.lower()]
-for k in keys_to_remove:
-    del m._children[k]
+# === PARANOIDNÍ REKURZIVNÍ ČISTIČKA SKOKŮ (FITBOUNDS) ===
+# Projde všechny elementy a pod-elementy mapy a smaže cokoliv, co 
+# by mohlo prohlížeči vnutit změnu viewportu.
+def sanitize_map_bounds(element):
+    if not hasattr(element, "_children"): return
+    bad_keys = []
+    for key, child in element._children.items():
+        if isinstance(child, folium.FitBounds) or "fitbounds" in key.lower() or "fit_bounds" in key.lower():
+            bad_keys.append(key)
+        else:
+            sanitize_map_bounds(child)
+    for key in bad_keys:
+        del element._children[key]
 
-# 2. Resetujeme skrytě změněné souřadnice mapy. Leafmap je při importu vrstvy 
-# posunul na střed rastru, což by způsobilo odskok mapy při každém překreslení ve Streamlitu.
-m.location = [49.19, 16.60]
-m.options['zoom'] = 10
+sanitize_map_bounds(m)
+# =======================================================
 
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
+    # Streamlit Folium se díky 'key' a absenci FitBounds postará o plynulý update DOMu
     map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
 
 # ==========================================
@@ -290,7 +300,7 @@ else:
 st.markdown("---")
 
 # ==========================================
-# 6. Interactive Pixel Querying
+# 6. Interaktivní dotazování na pixely
 # ==========================================
 if map_output and map_output.get("last_clicked"):
     lat = map_output["last_clicked"]["lat"]
