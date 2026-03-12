@@ -46,7 +46,7 @@ st.markdown("""
 if "aoi_zip_buffer" not in st.session_state:
     st.session_state["aoi_zip_buffer"] = None
 
-st.title("Prostorová extrapolace parametrů NIL3")
+st.title("🌲 Prostorová extrapolace parametrů NIL3")
 st.markdown("Interaktivní vizualizace mapových vrstev Národní inventarizace lesů vzniklých natrénováním ensemble modelů strojového učení (prediktory: Výškový model lesa 2018-2019, odrazivosti Sentinel-2 2019).")
 st.markdown("---")
 
@@ -159,21 +159,25 @@ TARGETS = {
 HF_BASE_URL = "https://huggingface.co/datasets/lukespetr/NIL_retrieval/resolve/main/"
 
 with st.sidebar:
-    st.header("Nastavení vrstvy")
+    st.header("⚙️ Nastavení vrstvy")
     selected_key = st.selectbox("🎯 Výběr parametru NIL3:", options=list(TARGETS.keys()), format_func=lambda x: TARGETS[x]["name"])
     map_mode = st.radio("📊 Typ mapy:", ["Průměrný odhad", "Nejistota odhadu (CV %)"])
 
     st.markdown("---")
-    st.header("Nastavení zobrazení")
+    st.header("🗺️ Nastavení zobrazení")
     basemap_options = {
         "Satelitní (Google)": "HYBRID",
         "OpenStreetMap": "OpenStreetMap",
         "Topo Mapa (OpenTopoMap)": "OpenTopoMap",
         "Terénní (Google)": "TERRAIN"
     }
-    selected_basemap = st.selectbox("Základní mapa:", options=list(basemap_options.keys()))
-    layer_opacity = st.slider("Průhlednost rastrové vrstvy:", min_value=0.0, max_value=1.0, value=0.85, step=0.05)
+    selected_basemap = st.selectbox("🌍 Základní mapa:", options=list(basemap_options.keys()))
+    layer_opacity = st.slider("👁️ Průhlednost rastrové vrstvy:", min_value=0.0, max_value=1.0, value=0.85, step=0.05)
     
+    st.markdown("---")
+    st.header("📐 Vektorové vrstvy")
+    show_ndsm_vector = st.checkbox("Zobrazit změny nDSM (polygony)", value=False)
+
     st.markdown("---")
     st.info("💡 **Tip:** Nakreslete v mapě polygon pomocí panelu nástrojů na levé straně pro hromadné stažení dat, nebo klikněte do mapy pro zobrazení lokálního profilu.")
 
@@ -261,7 +265,7 @@ with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
 # ==========================================
 # 5. Bulk Export (AOI Download)
 # ==========================================
-st.subheader("Export dat pro zájmové území (AOI)")
+st.subheader("📥 Export dat pro zájmové území (AOI)")
 if map_output and map_output.get("last_active_drawing"):
     geom = map_output["last_active_drawing"]["geometry"]
     st.success("Byl detekován polygon. Nyní můžete extrahovat mapové výstupy (12 vrstev) do formátu GeoTIFF.")
@@ -278,7 +282,7 @@ if map_output and map_output.get("last_active_drawing"):
             status_text.empty()
         else:
             st.session_state["aoi_zip_buffer"] = buffer
-            status_text.success("Extrakce úspěšně dokončena. Soubor je připraven ke stažení.")
+            status_text.success("✅ Extrakce úspěšně dokončena. Soubor je připraven ke stažení.")
             time.sleep(2)
             progress_bar.empty()
             status_text.empty()
@@ -303,11 +307,11 @@ if map_output and map_output.get("last_clicked"):
     lat = map_output["last_clicked"]["lat"]
     lon = map_output["last_clicked"]["lng"]
     
-    st.subheader("Profil lesa pro vybranou lokalitu")
+    st.subheader("📍 Profil lesa pro vybranou lokalitu")
     st.caption(f"**GPS souřadnice:** {lat:.5f} N, {lon:.5f} E")
     st.write("") 
     
-    with st.spinner("Extrahuji parametry ze všech 12 predikčních vrstev v reálném čase..."):
+    with st.spinner("⚡ Extrahuji parametry ze všech 12 predikčních vrstev v reálném čase..."):
         transformer = Transformer.from_crs("EPSG:4326", "EPSG:32633", always_xy=True)
         x, y = transformer.transform(lon, lat)
         
@@ -350,5 +354,4 @@ if map_output and map_output.get("last_clicked"):
                         delta="Žádná data"
                     )
 else:
-    st.info("Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
-
+    st.info("👆 Klikněte do mapy na libovolný zalesněný pixel pro zobrazení lokálních parametrů.")
