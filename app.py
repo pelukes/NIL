@@ -189,11 +189,25 @@ palette = "viridis" if suffix == "mean" else "magma"
 legend_title = f"{TARGETS[selected_key]['name']}" if suffix == "mean" else f"Nejistota CV (%)"
 
 # ==========================================
-# 4. Map Initialization
+# 4. Map Initialization & State Management
 # ==========================================
+# Intercept map state BEFORE initialization using the widget key
+if "nil3_main_map" in st.session_state and st.session_state["nil3_main_map"].get("center"):
+    st.session_state.map_center = [
+        st.session_state["nil3_main_map"]["center"]["lat"], 
+        st.session_state["nil3_main_map"]["center"]["lng"]
+    ]
+    st.session_state.map_zoom = st.session_state["nil3_main_map"]["zoom"]
+else:
+    # Initial load defaults
+    if "map_center" not in st.session_state:
+        st.session_state.map_center = [49.19, 16.60]
+    if "map_zoom" not in st.session_state:
+        st.session_state.map_zoom = 10
+
 m = leafmap.Map(
-    center=[49.19, 16.60], 
-    zoom=10, 
+    center=st.session_state.map_center, 
+    zoom=st.session_state.map_zoom, 
     draw_control=True, 
     measure_control=False
 )
@@ -208,7 +222,8 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
         rescale=f"1,{vmax}", 
         transparent_bg=True,
         nodata=0,
-        opacity=layer_opacity
+        opacity=layer_opacity,
+        zoom_to_layer=False  # Required constraint to prevent extent reset
     )
     m.add_colormap(cmap=palette, vmin=1, vmax=vmax, label=legend_title, position="topright")
 
@@ -237,19 +252,15 @@ with st.spinner(f"🛰️ Načítám vrstvu: {TARGETS[selected_key]['name']}..."
             control=True
         )
 
-# === KLÍČOVÝ HACK PRO ZACHOVÁNÍ POZICE MAPY ===
-# 1. Odstraníme automatický bounding box, který si folium vytvořil.
-keys_to_remove = [k for k in m._children.keys() if "fitbounds" in k.lower() or "fit_bounds" in k.lower()]
-for k in keys_to_remove:
-    del m._children[k]
-
-# 2. Resetujeme skrytě změněné souřadnice mapy. Leafmap je při importu vrstvy 
-# posunul na střed rastru, což by způsobilo odskok mapy při každém překreslení ve Streamlitu.
-m.location = [49.19, 16.60]
-m.options['zoom'] = 10
-
 with st.spinner("🗺️ Vykresluji interaktivní mapu..."):
-    map_output = st_folium(m, key="nil3_main_map", width=1500, height=650, returned_objects=["last_clicked", "last_active_drawing"])
+    # Execute st_folium with the necessary object extractions for state retention
+    map_output = st_folium(
+        m, 
+        key="nil3_main_map", 
+        width=1500, 
+        height=650, 
+        returned_objects=["last_clicked", "last_active_drawing", "center", "zoom"]
+    )
 
 # ==========================================
 # 5. Bulk Export (AOI Download)
